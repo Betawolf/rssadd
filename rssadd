@@ -1,0 +1,112 @@
+#!/usr/bin/python2
+import sys
+import os
+import urllib2
+import datetime
+from xml.dom import minidom
+from BeautifulSoup import BeautifulSoup
+
+feedfile = os.path.join(os.path.expanduser('~'),".personalfeed.rss")
+feedtitle = "Links Cache"
+feedlink = "http://xn--bta-yla.net"
+lastBuildDate = datetime.datetime.now()
+
+def gettext(nodelist):
+    """ Get the text contents of a node list """
+    listdata = []
+    for node in nodelist:
+        if node.nodeType == node.TEXT_NODE:
+            listdata.append(node.data)
+    return ''.join(listdata)
+
+
+def parse(targetfile, objname, argsorder, theclass):
+    """ Parses a set of objects from an XML file of a certain structure describing them"""
+    objectlist = []
+    xmlobj = minidom.parse(targetfile)
+    for subobj in xmlobj.documentElement.childNodes[1].childNodes:
+        if subobj.localName == objname:
+            args = [[] if a[1] == 'list' else '' for a in argsorder]
+            wantednodes = zip(*argsorder)[0]
+            for elem in subobj.childNodes:
+                if elem.localName in wantednodes:
+                    index = wantednodes.index(elem.localName) 
+                    data = gettext(elem.childNodes)
+                    if argsorder[index][1] == 'list':
+                        args[index].append(data)
+                    else:
+                        args[index] = data
+            objectlist.append(theclass.fromarray(args))
+    objectset = set(objectlist)
+#    print("{} Objects Parsed: {} ({} unique)".format(theclass.__name__, len(objectlist), len(objectset)))
+    return list(objectset)
+
+def writefeed(feed):
+   ff = open(feedfile,'w')
+   ff.write('<?xml version="1.0" encoding="UTF-8"?>')
+   ff.write('<rss version="2.0">\n')
+   ff.write('<channel>\n')
+   ff.write('<title>{}</title>\n'.format(feedtitle))
+   ff.write('<link>{}</link>\n'.format(feedlink))
+   ff.write('<lastBuildDate>{}</lastBuildDate>\n'.format(lastBuildDate))
+   for f in feed:
+      f.display(ff)
+   ff.write('</channel>')
+   ff.write('</rss>')
+   ff.close()
+
+class RSSITEM:
+
+  @classmethod
+  def fromarray(cls, array):
+    return RSSITEM(array[0],array[1],array[2],array[3])
+
+  def __init__(self, title, description, link, date):
+    self.title = title
+    self.description = description
+    self.link = link
+    self.date = date
+
+  def display(self,fd=sys.stdout):
+    fd.write("<item>\n")
+    fd.write('<title>{}</title>\n'.format(unicode(self.title).encode('utf-8')))
+    fd.write('<pubDate>{}</pubDate>\n'.format(self.date))
+    fd.write('<link>{}</link>\n'.format(self.link))
+    fd.write('<description>{}</description>\n'.format(self.description))
+    fd.write("</item>\n")
+
+
+if len(sys.argv) < 2:
+  print("You need to supply a link.")
+  exit(1)
+
+#Take link given.
+link = sys.argv[1]
+
+#Take time.
+date = datetime.datetime.now()
+
+#Open it, get title.
+try:
+  source = urllib2.urlopen(link)
+  bs = BeautifulSoup(source)
+  title = unicode(bs.find('title').text).encode('utf-8')
+except:
+  title = raw_input("Title: ")
+
+#Get description.
+description = raw_input("Description: ")
+
+#Build
+newitem = RSSITEM(title,description,link,date)
+
+#Parse existing
+try:
+  feed = parse(feedfile, 'item', [('title','single'),('description','single'),('link','single'),('pubDate','single')], RSSITEM)
+  feed.append(newitem)
+except:
+  feed = [newitem]
+
+writefeed(feed)
+
+print("Link saved.")
